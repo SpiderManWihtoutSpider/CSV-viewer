@@ -1,0 +1,186 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>極簡 CSV 檢視器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIkNTViBWaWV3ZXIiLAogICJzaG9ydF9uYW1lIjogIkNTViIsCiAgInN0YXJ0X3VybCI6ICIuIiwKICAiZGlzcGxheSI6ICJzdGFuZGFsb25lIiwKICAiYmFja2dyb3VuZF9jb2xvciI6ICIjZmZmZmZmIiwKICAidGhlbWVfY29sb3ciOiAiIzI1NjNmYSIKfQ==">
+    <style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 h-screen flex flex-col overflow-hidden text-gray-800">
+
+    <!-- 標題欄 -->
+    <header class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center shrink-0">
+        <h1 class="text-xl font-bold flex items-center">
+            <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            CSV 檢視器
+        </h1>
+        <div class="flex space-x-2">
+            <input type="file" id="fileInput" accept=".csv" class="hidden">
+            <button onclick="document.getElementById('fileInput').click()" class="bg-blue-700 hover:bg-blue-800 px-3 py-1 rounded text-sm transition">開啟檔案</button>
+            <button onclick="clearAll()" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-sm transition">清空內容</button>
+        </div>
+    </header>
+
+    <!-- 上半部分：文字編輯區 -->
+    <section class="p-4 h-1/3 shrink-0 flex flex-col">
+        <label for="csvInput" class="block text-sm font-medium text-gray-700 mb-1">CSV 原始內容 (在此貼上文字)</label>
+        <textarea 
+            id="csvInput" 
+            placeholder="請貼上 CSV 內容，例如：&#10;姓名,年齡,職業&#10;王小明,25,工程師&#10;李小華,30,設計師"
+            class="flex-1 w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm resize-none outline-none custom-scrollbar"
+        ></textarea>
+    </section>
+
+    <!-- 下半部分：表格顯示區 -->
+    <section class="flex-1 p-4 overflow-hidden flex flex-col">
+        <div class="flex justify-between items-center mb-1">
+            <h2 class="text-sm font-medium text-gray-700">資料表格預覽</h2>
+            <span id="rowCount" class="text-xs text-gray-500">共 0 列資料</span>
+        </div>
+        <div class="flex-1 bg-white border border-gray-200 rounded-lg shadow-inner overflow-auto custom-scrollbar">
+            <table id="dataTable" class="min-w-full divide-y divide-gray-200">
+                <thead id="tableHead" class="bg-gray-100 sticky top-0">
+                    <!-- 表頭會在這裡生成 -->
+                </thead>
+                <tbody id="tableBody" class="bg-white divide-y divide-gray-200">
+                    <tr>
+                        <td colspan="100%" class="px-6 py-10 text-center text-gray-400 italic">
+                            請在上方輸入 CSV 內容以開始預覽
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <script>
+        const csvInput = document.getElementById('csvInput');
+        const tableHead = document.getElementById('tableHead');
+        const tableBody = document.getElementById('tableBody');
+        const rowCount = document.getElementById('rowCount');
+        const fileInput = document.getElementById('fileInput');
+
+        // 解析 CSV 的核心函數
+        function parseCSV(text) {
+            const lines = text.trim().split(/\r?\n/);
+            if (lines.length === 0 || (lines.length === 1 && lines[0] === "")) return [];
+            
+            return lines.map(line => {
+                // 簡單處理逗號分隔，考慮到引號內的逗號 (Regex)
+                const regex = /(".*?"|[^",\s]+)(?=\s*,|\s*$)/g;
+                let matches = line.match(/(".*?"|[^",\s]+|(?<=,|^)(?=,|$))/g) || [];
+                return matches.map(cell => cell.replace(/^"|"$/g, '').trim());
+            });
+        }
+
+        // 更新表格 UI
+        function updateTable() {
+            const content = csvInput.value;
+            const data = parseCSV(content);
+
+            tableHead.innerHTML = '';
+            tableBody.innerHTML = '';
+
+            if (data.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="100%" class="px-6 py-10 text-center text-gray-400 italic">無可用資料</td></tr>';
+                rowCount.textContent = '共 0 列資料';
+                return;
+            }
+
+            // 生成表頭 (第一列)
+            const headers = data[0];
+            const trHead = document.createElement('tr');
+            headers.forEach(header => {
+                const th = document.createElement('th');
+                th.className = 'px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider border-b';
+                th.textContent = header || '(空白標題)';
+                trHead.appendChild(th);
+            });
+            tableHead.appendChild(trHead);
+
+            // 生成內容 (其餘列)
+            const bodyRows = data.slice(1);
+            bodyRows.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-blue-50 transition-colors';
+                
+                // 確保儲存格數量與表頭一致
+                for (let i = 0; i < headers.length; i++) {
+                    const td = document.createElement('td');
+                    td.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-600 border-b';
+                    td.textContent = row[i] || '';
+                    tr.appendChild(td);
+                }
+                tableBody.appendChild(tr);
+            });
+
+            rowCount.textContent = `共 ${bodyRows.length} 列資料 (不含表頭)`;
+        }
+
+        // 清空
+        function clearAll() {
+            if (csvInput.value && !confirm('確定要清空所有內容嗎？')) return;
+            csvInput.value = '';
+            updateTable();
+        }
+
+        // 監聽輸入事件
+        csvInput.addEventListener('input', updateTable);
+
+        // 處理檔案上傳
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                csvInput.value = event.target.result;
+                updateTable();
+            };
+            reader.readAsText(file);
+        });
+
+        // 註冊 Service Worker (PWA 關鍵)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                const swCode = `
+                    const CACHE_NAME = 'csv-viewer-v1';
+                    self.addEventListener('install', (event) => {
+                        event.waitUntil(caches.open(CACHE_NAME));
+                    });
+                    self.addEventListener('fetch', (event) => {
+                        event.respondWith(
+                            fetch(event.request).catch(() => caches.match(event.request))
+                        );
+                    });
+                `;
+                const blob = new Blob([swCode], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+                navigator.serviceWorker.register(swUrl).then(reg => {
+                    console.log('PWA Service Worker 註冊成功');
+                }).catch(err => {
+                    console.log('PWA Service Worker 註冊失敗', err);
+                });
+            });
+        }
+    </script>
+</body>
+</html>
